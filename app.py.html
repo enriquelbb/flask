@@ -1,0 +1,56 @@
+from flask import Flask, request, flash, redirect, url_for, render_template, send_file
+from azure.storage.blob import BlobServiceClient
+import os
+from io import BytesIO
+
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+
+# Configuración de Azure Blob Storage
+AZURE_CONNECTION_STRING = "your_azure_storage_connection_string"
+blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
+CONTAINER_NAME = "your_container_name"  # Cambia esto según tu configuración
+
+@app.route('/', methods=['GET', 'POST'])
+def upload_file():
+    if request.method == 'POST':
+        container_name = request.form['container']
+        file = request.files['file']
+        try:
+            # Validar el archivo y el contenedor
+            if not file or not container_name:
+                raise ValueError("Debe seleccionar un archivo y un contenedor válido.")
+
+            # Subir el archivo al contenedor
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=file.filename)
+            blob_client.upload_blob(file)
+            flash('Archivo subido exitosamente a Azure Blob Storage.', 'success')
+        except Exception as e:
+            flash(f'Error al subir el archivo: {e}', 'danger')
+        return redirect(url_for('upload_file'))
+
+    # Listar archivos del contenedor
+    try:
+        container_client = blob_service_client.get_container_client(CONTAINER_NAME)
+        blob_list = container_client.list_blobs()
+        files = [blob.name for blob in blob_list]
+    except Exception as e:
+        flash(f'Error al listar los archivos: {e}', 'danger')
+        files = []
+
+    return render_template('index.html', files=files)
+
+@app.route('/download/<filename>', methods=['GET'])
+def download_file(filename):
+    try:
+        blob_client = blob_service_client.get_blob_client(container=CONTAINER_NAME, blob=filename)
+        stream = BytesIO()
+        stream.write(blob_client.download_blob().readall())
+        stream.seek(0)
+        return send_file(stream, as_attachment=True, download_name=filename)
+    except Exception as e:
+        flash(f'Error al descargar el archivo: {e}', 'danger')
+        return redirect(url_for('upload_file'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
